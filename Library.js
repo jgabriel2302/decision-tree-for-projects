@@ -31,14 +31,16 @@ class Commom {
   }
 }
 
-class FakeData {
+class Database {
   static generate(size = 1, eachFunction = (x) => x){
-    return new FakeData(size, eachFunction).generate().data;
+    return new Database().generate(size, eachFunction);
   }
 
-  constructor(size = 1, eachFunction = (x) => x) {
-    this.size = size;
-    this.eachFunction = eachFunction;
+  constructor() {
+    this.isFetched = false;
+    this.isGenerated = false;
+    this.size = 0;
+    this.eachFunction = (x) => x;
     this.headers = [];
     this.types = [];
     this.data = [];
@@ -51,19 +53,87 @@ class FakeData {
     return this;
   }
 
-  generate(){
+  generate(size = 1, eachFunction = (x) => x){
+    this.isGenerated = this;
+    this.size = size;
+    this.eachFunction = eachFunction;
     this.data = new Array(this.size).fill([]).map((x, i) => this.eachFunction(x, i));
     this.filter = new Array(this.size).fill(1);
     return this;
+  }
+
+  fetch(url, firstRowIsHeader = false){
+    return new Promise(async (resolve, reject) => {
+      const request = await fetch(url);
+      const content = await request.text();
+      let maxColumns = 1;
+      const data = content.split(/\n/).map(row=>{
+        row = row.replace(/""/g, "'");
+        let splitter = ","
+        const output = [];
+        let column = "";
+        for (let index = 0; index < row.length; index++) {
+          const char = row.charAt(index);
+          const prevChar = row.charAt(index - 1);
+          const nextChar = row.charAt(index + 1);
+          if(char === splitter || index === row.length - 1){
+            if(char ===  '"' && splitter === '"' ) splitter = ",";
+            if(index === row.length - 1) column += char;
+            output.push(column.trim());
+            column = ""
+          } else {
+            if(char ===  '"' && splitter === ",") splitter = '"';
+            else column += char
+          }
+        }
+        maxColumns = Math.max(maxColumns, output.length - 1);
+        return output;
+      })
+      .map(row=>{
+        return new Array(maxColumns).fill("").map((x, i) => row[i] || "");
+      });
+      
+      const firstRow = firstRowIsHeader? data.shift(): data[0];
+      const header = new Array(maxColumns).fill("").map((h, i)=>(firstRowIsHeader && firstRow[i]) ? firstRow[i]: `column${i}`)
+
+      if(firstRowIsHeader) this.header(header);
+      this.data = data;
+      this.size = data.length;
+      this.filter = new Array(this.size).fill(1);
+
+      this.isFetched = true;
+
+      resolve(this);
+    })
+  }
+
+  addColumn(columnName, rowFunction = ()=>""){
+    this.headers.push(columnName);
+    this.types.push(0);
+    const json = this.json()
+    for (let index = 0; index < this.data.length; index++) {
+      this.data[index].push(rowFunction(json[index], index));
+    }
+    return this;
+  }
+
+  replaceColumn(columnNameOrIndex, colFunction = (value, row, index)=>value){
+    let columnIndex = typeof columnNameOrIndex === "number"? columnNameOrIndex: this.headers.indexOf(columnNameOrIndex);
+    if (columnIndex === -1) columnIndex = this.headers.indexOf(`column${index}`);
+    if (columnIndex === -1) throw new Error(`Coluna '${columnNameOrIndex}' não encontrada nos cabeçalhos.`);
+    const json = this.json()
+    for (let index = 0; index < this.data.length; index++) {
+      this.data[index][columnIndex] = colFunction(this.data[index][columnIndex], json[index], index)
+    }
   }
 
   dynamicColumns(columns = []){
     for (let index = 0; index < columns.length; index++) {
       let columnIndex = typeof columns[index] === "number"? columns[index]: this.headers.indexOf(columns[index]);
       if (columnIndex === -1) columnIndex = this.headers.indexOf(`column${index}`);
-      if (columnIndex === -1) throw new Error(`Coluna '${columnName}' não encontrada nos cabeçalhos.`);
+      if (columnIndex === -1) throw new Error(`Coluna '${columns[index]}' não encontrada nos cabeçalhos.`);
 
-      const uniqueValues = [...new Set(this.data.map(row => row[columnIndex]))];
+      const uniqueValues = [...new Set(this.data.filter((row, i)=>[1, undefined, true].includes(this.filter[i])).map(row => row[columnIndex]))];
 
       this.headers = [...this.headers, ...uniqueValues.map(x=>`${this.headers[columnIndex] ?? `column${columnIndex}` ?? columnIndex}:${x}`)];
       this.types = [...this.types, ...(new Array(uniqueValues.length).fill(1))];
@@ -75,13 +145,36 @@ class FakeData {
     return this;
   }
 
+  normalizeColumns(columns = []){
+    for (let index = 0; index < columns.length; index++) {
+      let columnIndex = typeof columns[index] === "number"? columns[index]: this.headers.indexOf(columns[index]);
+      if (columnIndex === -1) columnIndex = this.headers.indexOf(`column${index}`);
+      if (columnIndex === -1) throw new Error(`Coluna '${columns[index]}' não encontrada nos cabeçalhos.`);
+
+      const uniqueValues = [...new Set(this.data.filter((row, i)=>[1, undefined, true].includes(this.filter[i])).map(row => row[columnIndex]))];
+
+      const valueMap = uniqueValues.reduce((acc, value, index) => {
+        acc[value] = index / (uniqueValues.length - 1);
+        return acc;
+      }, {});
+
+      this.headers = [...this.headers, `${this.headers[columnIndex] ?? `column${columnIndex}` ?? columnIndex}:Norm`];
+      this.types = [...this.types, 1];
+
+      this.data = this.data.map((row)=>{
+        return [...row, valueMap[row[columnIndex]]];
+      });
+    }
+    return this;
+  }
+
   vectorColumns(columns = []){
     for (let index = 0; index < columns.length; index++) {
       let columnIndex = typeof columns[index] === "number"? columns[index]: this.headers.indexOf(columns[index]);
       if (columnIndex === -1) columnIndex = this.headers.indexOf(`column${index}`);
       if (columnIndex === -1) throw new Error(`Coluna '${columnName}' não encontrada nos cabeçalhos.`);
 
-      const uniqueValues = [...new Set(this.data.map(row => row[columnIndex]))];
+      const uniqueValues = [...new Set(this.data.filter((row, i)=>[1, undefined, true].includes(this.filter[i])).map(row => row[columnIndex]))];
 
       const valueMap = uniqueValues.reduce((acc, value, index) => {
         acc[value] = index;
@@ -110,7 +203,7 @@ class FakeData {
     })
   }
 
-  toHTML(targetId, onlyOriginals = false, rowRender = (row, col, header, value)=>`${value}`){
+  toHTML(targetId, onlyOriginals = false, rowRender = (row, col, header, value)=>`<td style="max-width:200px">${value}</td>`){
     const target = document.getElementById(targetId);
     if(target == null) return this;
     const html = `
@@ -174,6 +267,12 @@ class FakeData {
     this.cut(0, this.filter.length);
     return this;
   }
+
+  where(filterFunction = (r)=>true){
+    this.filter = this.json().map((x, i)=>{
+      return filterFunction(x, i);
+    });
+  }
 }
 
 class DecisionTree {
@@ -189,7 +288,7 @@ class DecisionTree {
     return this.classify(feature, this.tree);
   }
 
-  buildTree(features, labels, depth = 0, maxDepth = 10) {
+  buildTree(features, labels, depth = 0, maxDepth = 10, usedFeatures = []) {
     // Verifica se os rótulos são puros ou se atingiu a profundidade máxima
     if (this.isPure(labels)) {
       return labels[0];
@@ -199,18 +298,24 @@ class DecisionTree {
       return this.mostCommonLabel(labels);
     }
 
-    const { featureIndex, threshold } = this.bestSplit(features, labels);
+    console.log(features)
+    
+    const { featureIndex, threshold } = this.bestSplit(features, labels, usedFeatures);
     if (featureIndex === null) {
       return this.mostCommonLabel(labels);
     }
+
+    usedFeatures.push(featureIndex);
+
+    console.log(usedFeatures);
 
     const { left, right } = this.splitData(features, labels, featureIndex, threshold);
 
     return {
       featureIndex,
       threshold,
-      left: this.buildTree(left.features, left.labels, depth + 1, maxDepth),
-      right: this.buildTree(right.features, right.labels, depth + 1, maxDepth),
+      left: this.buildTree(left.features, left.labels, depth + 1, maxDepth, [...usedFeatures]),
+      right: this.buildTree(right.features, right.labels, depth + 1, maxDepth, [...usedFeatures]),
     };
   }
 
@@ -229,6 +334,7 @@ class DecisionTree {
   }
 
   mostCommonLabel(labels) {
+    if(labels.length == 0) return undefined
     const counts = labels.reduce((acc, label) => {
       acc[label] = (acc[label] || 0) + 1;
       return acc;
@@ -238,11 +344,14 @@ class DecisionTree {
     );
   }
 
-  bestSplit(features, labels) {
+  bestSplit(features, labels, usedFeatures = []) {
     let bestGini = 1;
     let bestSplit = { featureIndex: null, threshold: null };
 
+    if(features.length === 0) return bestSplit;
+
     for (let i = 0; i < features[0].length; i++) {
+      if (usedFeatures.includes(i)) continue;
       const thresholds = [...new Set(features.map((row) => row[i]))];
 
       for (const threshold of thresholds) {
@@ -314,13 +423,14 @@ class DecisionTree {
 }
 
 class DecisionTreeRenderer {
-  constructor(tree, features, labels, colors = {node: 'black', labels: ['red']}) {
+  constructor(tree, features, labels, colors = {node: 'black', labels: ['red']}, treeWidth = 300, treeHeight = 300) {
     this.tree = tree; // A árvore gerada pela classe DecisionTree
     this.features = features;
     this.labels = labels;
     this.colors = {node: 'black', labels: ['red'], ...colors};
+    this.treeHeight = treeHeight;
+    this.treeWidth = treeWidth;
     this.svgNamespace = "http://www.w3.org/2000/svg";
-    console.log(this);
   }
 
   // Renderiza a árvore em um container HTML
@@ -334,8 +444,8 @@ class DecisionTreeRenderer {
     container.innerHTML = "<h3 align='center'>Árvore de Decisão</h3>";
 
     // Define dimensões do SVG
-    const width = Math.max(300, window.innerWidth / 3.2);
-    const height = width;
+    const width = Math.max(this.treeWidth ?? 300, window.innerWidth / 3.2);
+    const height = this.treeHeight ?? width;
     
     container.style.width = `${width}px`;
     container.style.height = `${height}px`;
@@ -351,7 +461,7 @@ class DecisionTreeRenderer {
     svg.style.fontSize = "9px";
 
     // Renderiza a árvore recursivamente
-    this.renderNode(this.tree, svg, width / 2, 30, 100, 0);
+    this.renderNode(this.tree, svg, width / 2, width * 0.1, 100, 0);
 
     container.appendChild(svg);
   }
@@ -365,12 +475,21 @@ class DecisionTreeRenderer {
     }
 
     if(node == null || node == undefined) return;
-    console.log(node);
     if(node.featureIndex == null || node.featureIndex == undefined) return;
     if(node.threshold == null || node.threshold == undefined) return;
 
+    let featureLabel = this.features[node.featureIndex] ?? node.featureIndex;
+    let featureSign = " ≤ ";
+    let featureRule = node.threshold;
+
+    if(String(featureLabel).includes(":") && !String(featureLabel).includes(":Vector") && !String(featureLabel).includes(":Norm")) {
+      featureLabel = featureLabel.replace(":", " = ");
+      featureSign = "";
+      featureRule = "";
+    }
+
     // Nó intermediário (divisão)
-    this.drawNode(svg, x, y, 15, this.colors.node ?? `#87CEEB`, `${this.features[node.featureIndex] ?? node.featureIndex} ≤ ${node.threshold}?`);
+    this.drawNode(svg, x, y, 15, this.colors.node ?? `#87CEEB`, `${featureLabel}${featureSign}${featureRule}?`.trim());
 
     // Calcula posições para os filhos
     const childY = y + 80;

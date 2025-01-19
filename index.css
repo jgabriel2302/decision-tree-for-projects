@@ -34,6 +34,24 @@ header h1 {
     font-size: 1.3em;
 }
 
+header h1 select {
+    font-family: inherit;
+    font-weight: inherit;
+    font-style: inherit;
+    background: transparent;
+    color: inherit;
+    border: none;
+    outline: none;
+    font-size: inherit;
+    text-align: center;
+    width: auto;
+}
+
+header h1 select option {
+    background-color: #333;
+    color: #fff;
+}
+
 header h2 {  
     font-size: 0.9em;
 }
