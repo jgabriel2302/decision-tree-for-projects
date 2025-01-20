@@ -138,7 +138,7 @@ function StrategicProjectExemple(){
       "Status",
       "Classificação",
       "Classificação:Norm"
-    ], true), data.select([  "Classificação", "Classificação:Norm" ]).reduce((acc, v)=>({...acc, [v[1]]: v[0]}), {}), {node: "#eee", labels: [ "#99bccd", "#e8f6a5"]} );
+    ], true), data.select([  "Classificação", "Classificação:Norm" ]).reduce((acc, v)=>({...acc, [v[1]]: v[0]}), {}), {node: "#eee", labels: [ "#99bccd", "#e8f6a5"]}, 300, 500 );
   renderer.render("tree-container");
 }
 
